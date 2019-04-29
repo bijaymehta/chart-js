@@ -1,0 +1,207 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Untitled Document</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+canvas {
+	max-width: 100%;
+	max-height: 100%;
+}
+.canvas-balloon {
+	position: absolute;
+	left: -200px;
+}
+</style>
+<!--[if lt IE 9]><script src="assets/js/lib/html5shiv.min.js"></script><![endif]-->
+
+</head>
+
+<body>
+
+<hr/>
+
+<canvas id="canvas2" width="600" height="360"></canvas>
+<canvas id="balloon2" class="canvas-balloon" width="105" height="75"></canvas>
+
+<hr/>
+
+<script src="assets/js/lib/jquery-1.11.1.min.js"></script>
+<!--[if IE]><script type="text/javascript" src="assets/js/lib/excanvas.min.js"></script><![endif]-->
+<script src="assets/js/utils/chart.js"></script>
+<script src="data.js"></script>
+
+<script>
+
+	var userType = "Electric".toLowerCase();
+	var minDate = new Date(userType == "gas" ? "Jan 1, 2012" : "Jan 1, 2001");
+	var billingCycle = "";
+	var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec", ""];
+
+
+function getLabelFromDate(month, isBiMonthly) {
+    var monthIndex = Number(month); //Number(monthYear.split("-")[0]);
+    
+    monthIndex = isNaN(monthIndex) || monthIndex > 11 ? 12 : monthIndex;
+    if(isBiMonthly == true){
+    	return months[monthIndex == 0 ? 11 : monthIndex - 1] + " - " + months[monthIndex];
+    }else{
+    	return months[monthIndex];
+    }
+}
+
+
+function parseElectricData(json, lastYear, billCycle) {
+    if (!json)
+        return {};
+    var length = json.consDetListCurrGraph && json.consDetListCurrGraph.length || 0;
+    var data = [];
+    var curr = [];
+    var prev = [];
+    var labels = [];
+    for (var i = 0; i < length; i++) {
+        if (json.consDetListCurrGraph) {
+            var currentObject = json.consDetListCurrGraph[i] ? json.consDetListCurrGraph[i].electricConsRetDTO : null;
+            var previousObj = json.consDetListPrevGraph[i]? json.consDetListPrevGraph[i].electricConsRetDTO : null;
+            curr.push({
+                "consumption" : currentObject  ? isNaN(currentObject.usageQuantNumber) ? -1 : Number(currentObject.usageQuantNumber) : -1,
+                "threshold" : currentObject && currentObject.blockDet[0] ? Number(currentObject.blockDet[0].blockHighVal) || 0 : 0
+            })
+        }
+        if (json.consDetListPrevGraph) {
+            prev.push({
+                "consumption" : previousObj ? isNaN(previousObj.usageQuantNumber) ? -1 : Number(previousObj.usageQuantNumber) : -1,
+                "threshold" : previousObj && previousObj.blockDet[0] ? Number(previousObj.blockDet[0].blockHighVal) || 0 : 0
+            })
+        }
+        labels.push(getLabelFromDate(json.consDetListCurrGraph[i].monthLabel, String(billCycle).toUpperCase() !== "M"));
+    }
+    if (lastYear != false) {
+        data.push(prev);
+    }
+    data.push(curr);
+    return {
+        labels : labels,
+        data : data
+    }
+}
+
+function _verify_(obj, prop){
+	return obj && obj[prop] !== undefined && obj[prop] !== null && obj[prop] !== '' && !isNaN(Number(obj[prop]));
+}
+
+function parseGasData(json, lastYear) {
+    if (!json)
+        return {};
+    var length = json.consDetListCurrGraph && json.consDetListCurrGraph.length || 0;
+    var data = [];
+    var curr = [];
+    var prev = [];
+    var labels = [];
+    for (var i = 0; i < length; i++) {
+        if (json.consDetListCurrGraph) {
+            curr.push({
+                "consumption" : _verify_(json.consDetListCurrGraph[i], "billConsumptionRetNumber") ? Number(json.consDetListCurrGraph[i].billConsumptionRetNumber) : -1,
+                "temperature" : _verify_(json.consDetListCurrGraph[i], "avgTempRet") ? Number(json.consDetListCurrGraph[i].avgTempRet): null
+            })
+        }
+        if (json.consDetListPrevGraph) {
+            prev.push({
+                "consumption" : _verify_(json.consDetListPrevGraph[i], "billConsumptionRetNumber") ? Number(json.consDetListPrevGraph[i].billConsumptionRetNumber) : -1,
+                "temperature" : _verify_(json.consDetListPrevGraph[i], "avgTempRet") ? Number(json.consDetListPrevGraph[i].avgTempRet) : null
+            })
+        }
+        labels.push(months[json.consDetListCurrGraph[i].monthLabel]);
+        
+    }
+    if (lastYear != false) {
+        data.push(prev);
+    }
+    data.push(curr);
+    return {
+        labels : labels,
+        data : data
+    }
+}
+
+function getPlotData(json, lastYear, billCycle) {
+    if (userType === "gas") {
+        return parseGasData(json, lastYear);
+    } else if (userType === "electric") {
+        return parseElectricData(json, lastYear, billCycle);
+    } else {
+        return {}
+
+    }
+}
+
+function graphAJAXcallback(data, id, billCycle) {
+    billingCycle = billCycle;
+    var title = "My energy use, ";
+    var suffix = id || "";
+    switch ($('#consumptionHistory\\:selectDateRangeEle' + id).val()) {
+    case '-3':
+        title += "last 3 months";
+        break;
+    case '-6':
+        title += "last 6 months";
+        break;
+    case '-12':
+        title += "last 12 months";
+        break;
+    case '-24':
+        title += "last 24 months";
+        break;
+    case 'py':
+        title += "previous calendar year";
+        break;
+    case 'custom':
+        title += ($('#consumptionHistory\\:dateFromElectric' + suffix).val() + " - " + $('#consumptionHistory\\:dateToElectric' + suffix).val());
+        break;
+    default:
+        title += "last 6 months";
+    }
+    $('#title-graph-' + suffix).html(title);
+    var lastYear = $('#consumptionHistory\\:ShowPasswordEle' + suffix).is(':checked');
+    var chart = new Chart({
+            canvasID : 'chart' + suffix,
+            balloonID : 'chart-balloon' + suffix,
+            type : userType,
+            temperature : true,
+            plot : getPlotData(data, lastYear, billCycle)
+        });
+}
+
+var G_vmlCanvasManager;
+function initCanvas4IE8(canvasID){
+    var myCanvas = document.getElementById(canvasID);
+    if (typeof G_vmlCanvasManager !== "undefined" && typeof myCanvas.getContext == "undefined") {
+        console.log('bingo!');
+        G_vmlCanvasManager.initElement(myCanvas);
+    }
+}
+
+
+function showChart(){
+    
+    initCanvas4IE8("canvas2");
+    initCanvas4IE8("balloon2");
+    
+    console.log(getPlotData(data));
+    
+    var chart2 = new Chart({
+        canvasID : 'canvas2',
+        balloonID : 'balloon2',
+        type: userType,
+        temperature: true,
+        bar : {
+            label : false
+        },
+        plot : getPlotData(data) //parseElectricData(data)
+    });
+}
+showChart();  
+</script>
+</body>
+</html>
